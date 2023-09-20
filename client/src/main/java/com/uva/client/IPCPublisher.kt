@@ -10,16 +10,12 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.Message
 import android.os.Messenger
-import android.os.Process
 import android.os.RemoteException
 import android.util.Log
 import com.uva.server.RemoteService
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
 
 class IPCPublisher {
@@ -39,10 +35,10 @@ class IPCPublisher {
         override fun handleMessage(msg: Message) {
             // Update UI with remote process info
             val bundle = msg.data
-            scope?.launch {
-                val text = bundle.getString("MESSAGE") ?: ""
-                _messages.emit(text)
-            }
+//            scope?.launch {
+//                val text = bundle.getString("MESSAGE") ?: ""
+//                _messages.emit(text)
+//            }
             Log.i("dsdsdsd", "handleMessage:$bundle")
         }
     }
@@ -50,27 +46,39 @@ class IPCPublisher {
 
         // Called when the connection with the service is established.
         override fun onServiceConnected(className: ComponentName, service: IBinder) {
+            Log.i("dsdsd", "onServiceConnected: ")
             connected.set(true)
+
             remoteService = RemoteService.Stub.asInterface(service)
-            scope = CoroutineScope(SupervisorJob())
-            serverMessenger = Messenger(service)
             clientMessenger = Messenger(handler)
+
+//            scope = CoroutineScope(SupervisorJob())
+            serverMessenger = Messenger(service)
+            runCatching {
+                val msg: Message = Message.obtain(
+                    null,
+                    123,
+                )
+                msg.replyTo = clientMessenger
+                serverMessenger?.send(msg)
+            }
         }
 
         // Called when the connection with the service disconnects unexpectedly.
         override fun onServiceDisconnected(className: ComponentName) {
             connected.set(false)
-            remoteService = null
-            serverMessenger = null
-            scope?.cancel()
-            scope = null
+//            remoteService = null
+//            serverMessenger = null
+//            scope?.cancel()
+//            scope = null
         }
     }
 
-    fun connect(context: Context) {
+    fun connectAidl(context: Context) {
         if (connected.get()) return
         val intent = Intent("aidl_server")
-        val pack = RemoteService::class.java.`package`
+        val pack = RemoteService::class.java.`package` // todo?
+        Log.i(context.packageName, "connect package $pack")
         pack?.let {
             intent.setPackage(pack.name)
             context.applicationContext.bindService(
@@ -81,6 +89,25 @@ class IPCPublisher {
         }
     }
 
+    fun connectTwoWay(context: Context) {
+        if (connected.get()) return
+//        bindService(
+//            Intent(
+//                this,
+//                MessengerService.class
+//            ), mConnection, Context.BIND_AUTO_CREATE
+//        )
+        val intent = Intent("two_way_messages")
+        val pack = "com.uva.server" // todo?
+        Log.i(context.packageName, "connect package $pack")
+        intent.setPackage(pack)
+        context.applicationContext.bindService(
+            intent,
+            connection,
+            Context.BIND_AUTO_CREATE,
+        )
+    }
+
     fun disconnect(context: Context) {
         if (!connected.get()) return
         context.applicationContext?.unbindService(connection)
@@ -88,16 +115,18 @@ class IPCPublisher {
 
     fun sendMessageToServer(text: String, context: Context) {
         require(connected.get())
+//        val message = Message.obtain(handler)
         val message = Message.obtain(handler)
         val bundle = Bundle()
         bundle.putString("MESSAGE", text)
-        bundle.putString("PACKAGE_NAME", context.packageName)
-        bundle.putInt("DIP", Process.myPid())
+//        bundle.putString("PACKAGE_NAME", "com.uva.server.RemoteService")
+//        bundle.putInt("DIP", Process.myPid())
         message.data = bundle
-        message.replyTo =
-            clientMessenger // we offer our Messenger object for communication to be two-way
+//        message.replyTo =
+//            clientMessenger // we offer our Messenger object for communication to be two-way
         try {
             serverMessenger?.send(message)
+//            remoteService?.sendMessage(text)
         } catch (e: RemoteException) {
             e.printStackTrace()
         } finally {

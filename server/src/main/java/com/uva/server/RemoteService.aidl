@@ -5,6 +5,10 @@ interface RemoteService {
     /** Request the process ID of this service. */
     int getPid();
 
+    int doSmth();
+
+    void sendMessage(String message);
+
     /** Demonstrates some basic types that you can use as parameters
      * and return values in AIDL.
      */

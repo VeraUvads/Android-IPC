@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.uva.server">
 
     <application
         android:allowBackup="true"
@@ -21,7 +21,15 @@
         </activity>
 
         <service
-            android:name=".IPCService"
+            android:name=".MessengerIPCService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="two_way_messages" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".AidlIPCService"
             android:exported="true">
             <intent-filter>
                 <action android:name="aidl_server" />
