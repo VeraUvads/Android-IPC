@@ -10,12 +10,16 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.Message
 import android.os.Messenger
+import android.os.Process
 import android.os.RemoteException
 import android.util.Log
 import com.uva.server.RemoteService
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
 
 class IPCPublisher {
@@ -28,20 +32,28 @@ class IPCPublisher {
     private var serverMessenger: Messenger? = null
     private var clientMessenger: Messenger? = null
 
-    private val _messages: MutableSharedFlow<String> = MutableSharedFlow()
-    val messages: SharedFlow<String> = _messages
+    private val _messages: MutableStateFlow<List<String>> = MutableStateFlow(listOf())
+    val messages: StateFlow<List<String>> = _messages
 
     private val handler: Handler = object : Handler(Looper.getMainLooper()) {
         override fun handleMessage(msg: Message) {
             // Update UI with remote process info
             val bundle = msg.data
-//            scope?.launch {
-//                val text = bundle.getString("MESSAGE") ?: ""
-//                _messages.emit(text)
-//            }
+            val text = bundle.getString("MESSAGE")
+            val pId = bundle.getInt("PID")
+            text?.let { updateMessages(it, pId) }
             Log.i("dsdsdsd", "handleMessage:$bundle")
         }
     }
+
+    private fun updateMessages(text: String, pId: Int) {
+        scope?.launch {
+            val dataList = _messages.value.toMutableList()
+            dataList.add(text)
+            _messages.emit(dataList)
+        }
+    }
+
     private val connection = object : ServiceConnection {
 
         // Called when the connection with the service is established.
@@ -52,12 +64,12 @@ class IPCPublisher {
             remoteService = RemoteService.Stub.asInterface(service)
             clientMessenger = Messenger(handler)
 
-//            scope = CoroutineScope(SupervisorJob())
+            scope = CoroutineScope(SupervisorJob())
             serverMessenger = Messenger(service)
             runCatching {
                 val msg: Message = Message.obtain(
                     null,
-                    123,
+                    123, // register client
                 )
                 msg.replyTo = clientMessenger
                 serverMessenger?.send(msg)
@@ -67,10 +79,10 @@ class IPCPublisher {
         // Called when the connection with the service disconnects unexpectedly.
         override fun onServiceDisconnected(className: ComponentName) {
             connected.set(false)
-//            remoteService = null
-//            serverMessenger = null
-//            scope?.cancel()
-//            scope = null
+            remoteService = null
+            serverMessenger = null
+            scope?.cancel()
+            scope = null
         }
     }
 
@@ -91,12 +103,6 @@ class IPCPublisher {
 
     fun connectTwoWay(context: Context) {
         if (connected.get()) return
-//        bindService(
-//            Intent(
-//                this,
-//                MessengerService.class
-//            ), mConnection, Context.BIND_AUTO_CREATE
-//        )
         val intent = Intent("two_way_messages")
         val pack = "com.uva.server" // todo?
         Log.i(context.packageName, "connect package $pack")
@@ -115,25 +121,18 @@ class IPCPublisher {
 
     fun sendMessageToServer(text: String, context: Context) {
         require(connected.get())
-//        val message = Message.obtain(handler)
         val message = Message.obtain(handler)
         val bundle = Bundle()
+        updateMessages(text, Process.myPid())
         bundle.putString("MESSAGE", text)
-//        bundle.putString("PACKAGE_NAME", "com.uva.server.RemoteService")
-//        bundle.putInt("DIP", Process.myPid())
+        bundle.putInt("PID", Process.myPid())
         message.data = bundle
-//        message.replyTo =
-//            clientMessenger // we offer our Messenger object for communication to be two-way
         try {
-            serverMessenger?.send(message)
-//            remoteService?.sendMessage(text)
+            serverMessenger?.send(message) // todo if
         } catch (e: RemoteException) {
             e.printStackTrace()
         } finally {
             message.recycle()
         }
     }
-
-//    fun getMessages(): Flow<String> {
-//    }
 }
