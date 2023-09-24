@@ -1,6 +1,7 @@
 package com.uva.client
 
 import android.os.Bundle
+import android.os.Process
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.core.AnimationSpec
@@ -8,13 +9,14 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -32,14 +34,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Alignment.Companion.CenterHorizontally
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.uva.MessageDto
 import com.uva.client.ui.theme.Harmonies
 import com.uva.client.ui.theme.IPCTheme
 
@@ -50,48 +53,52 @@ class ClientActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ipc = IPCPublisher()
-//        ipc!!.connect(this)
-//        val list = mutableListOf<String>()
-//        lifecycleScope.launch {
-//            ipc!!.messages
-//                .collect {
-//                    list.add(it)
-//                }
-//        }
 
         setContent {
             IPCTheme {
-//                val message = ipc?.messages?.collectAsState(initial = "Test")
-                // A surface container using the 'background' color from the theme
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    Column {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
                         val context = LocalContext.current
-                        Button(
-                            modifier = Modifier.wrapContentSize(),
-                            onClick = { ipc?.connectTwoWay(context.applicationContext) },
-                        ) {
-                            Text(text = "Connect")
+                        val connected by ipc!!.connected.collectAsState()
+                        if (!connected) {
+                            Button(
+                                modifier = Modifier.wrapContentSize().align(CenterHorizontally),
+                                onClick = { ipc?.connectTwoWay(context.applicationContext) },
+                            ) {
+                                Text(text = "Connect")
+                            }
                         }
-                        val messages: List<String> by ipc!!.messages.collectAsState()
+                        val messages: List<MessageDto> by ipc!!.messages.collectAsState()
 
                         LazyColumn() {
                             items(messages) {
                                 ChatMessageItem(it)
                             }
                         }
-                        var text by remember { mutableStateOf("") }
-                        TextField(value = text, onValueChange = { text = it })
-                        Button(
-                            modifier = Modifier.wrapContentSize(),
-                            onClick = {
-                                ipc?.sendMessageToServer(text, context)
-                                text = ""
-                            },
+                        Row(
+                            modifier = Modifier.weight(0.9f).padding(8.dp),
+                            verticalAlignment = Alignment.Bottom,
                         ) {
-                            Text(text = "Send")
+                            var text by remember { mutableStateOf("") }
+                            TextField(
+                                value = text,
+                                onValueChange = { text = it },
+                                modifier = Modifier.weight(0.9f).wrapContentHeight(),
+                            )
+                            Button(
+                                modifier = Modifier.wrapContentSize(),
+                                onClick = {
+                                    ipc?.sendMessageToServer(text, context)
+                                    text = ""
+                                },
+                            ) {
+                                Text(text = "Send")
+                            }
                         }
                     }
                 }
@@ -101,13 +108,14 @@ class ClientActivity : ComponentActivity() {
 
     @Composable
     fun ChatMessageItem(
-        message: String,
+        message: MessageDto,
         enterAnimation: AnimationSpec<Float> = spring(
             dampingRatio = Spring.DampingRatioLowBouncy, // Adjust this value for the desired bounce effect
             stiffness = Spring.StiffnessLow,
         ),
     ) {
         var showMessage by remember { mutableStateOf(false) }
+        val isMyMessage by remember { mutableStateOf(message.pId == Process.myPid()) }
 
         LaunchedEffect(message) {
             showMessage = true
@@ -128,26 +136,38 @@ class ClientActivity : ComponentActivity() {
             animationSpec = enterAnimation,
             label = "",
         )
-        Row(
-            modifier = Modifier
-                .padding(8.dp)
-                .graphicsLayer(
-                    translationY = if (true) translationY else -translationY,
-                    scaleX = scale,
-                    scaleY = scale,
-                    alpha = alpha,
-                )
-                .background(
-                    color = if (true) Harmonies else Color.LightGray,
-                    shape = RoundedCornerShape(8.dp),
-                )
-                .fillMaxWidth(),
-            horizontalArrangement = Arrangement.Start,
-        ) {
-            Text(
-                text = message,
-                modifier = Modifier.padding(16.dp, 8.dp),
-            )
+
+        Column() {
+            Row {
+                if (!isMyMessage) {
+                    Spacer(modifier = Modifier.weight(0.1F))
+                }
+                Row(
+                    modifier = Modifier
+                        .padding(8.dp)
+                        .weight(0.9F)
+                        .graphicsLayer(
+                            translationY = if (isMyMessage) translationY else -translationY,
+                            scaleX = scale,
+                            scaleY = scale,
+                            alpha = alpha,
+                        )
+                        .background(
+                            color = if (isMyMessage) Harmonies else Color.LightGray,
+                            shape = RoundedCornerShape(8.dp),
+                        )
+                        .fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Start,
+                ) {
+                    Text(
+                        text = message.text,
+                        modifier = Modifier.padding(16.dp, 8.dp),
+                    )
+                }
+                if (isMyMessage) {
+                    Spacer(modifier = Modifier.weight(0.1F))
+                }
+            }
         }
     }
 

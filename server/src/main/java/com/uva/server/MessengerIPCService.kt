@@ -2,6 +2,7 @@ package com.uva.server
 
 import android.app.Service
 import android.content.Intent
+import android.content.ServiceConnection
 import android.os.Bundle
 import android.os.IBinder
 import android.os.Looper
@@ -15,7 +16,7 @@ import java.util.concurrent.atomic.AtomicInteger
 class MessengerIPCService : Service() {
     private val connections = AtomicInteger(0)
 
-    private val handler: ServerHandler = object : ServerHandler(Looper.getMainLooper(), "") {
+    private val handler: ServerHandler = object : ServerHandler(Looper.getMainLooper()) {
         private val clients = ArrayList<Messenger>()
 
         override fun handleMessage(msg: Message) {
@@ -23,10 +24,15 @@ class MessengerIPCService : Service() {
             when (msg.what) {
                 123 -> {
                     clients.add(msg.replyTo)
-                    sendMessage("Hello", msg.replyTo)
+                    sendMessage("You are registered. Hello!", msg.replyTo)
                 }
-
-                else -> super.handleMessage(msg)
+                else -> {
+                    val data = msg.data
+                    val message = data.getString("MESSAGE")
+                    val pId = data.getInt("PID")
+                    Communicator.updateMessages(message.orEmpty(), pId)
+                    super.handleMessage(msg)
+                }
             }
         }
 
@@ -52,6 +58,7 @@ class MessengerIPCService : Service() {
         message.data = bundle
         try {
             messenger.send(message) // todo if
+            Communicator.updateMessages(text, Process.myPid())
         } catch (e: RemoteException) {
             e.printStackTrace()
         } finally {
@@ -62,8 +69,13 @@ class MessengerIPCService : Service() {
     private val messenger = Messenger(handler)
 
     override fun onBind(intent: Intent?): IBinder? {
-        connections.incrementAndGet()
+        Communicator.updateConnections(connections.incrementAndGet())
         Log.i(this::class.simpleName, "onBind: $connections")
         return messenger.binder
+    }
+
+    override fun unbindService(conn: ServiceConnection) {
+        super.unbindService(conn)
+        Communicator.updateConnections(connections.decrementAndGet())
     }
 }

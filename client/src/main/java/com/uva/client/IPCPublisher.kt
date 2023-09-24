@@ -13,6 +13,7 @@ import android.os.Messenger
 import android.os.Process
 import android.os.RemoteException
 import android.util.Log
+import com.uva.MessageDto
 import com.uva.server.RemoteService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -20,20 +21,20 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import java.util.concurrent.atomic.AtomicBoolean
 
 class IPCPublisher {
     private var scope: CoroutineScope? = null
 
     private var remoteService: RemoteService? = null
 
-    private val connected = AtomicBoolean(false)
+    private val _connected = MutableStateFlow(false)
+    val connected : StateFlow<Boolean> = _connected
 
     private var serverMessenger: Messenger? = null
     private var clientMessenger: Messenger? = null
 
-    private val _messages: MutableStateFlow<List<String>> = MutableStateFlow(listOf())
-    val messages: StateFlow<List<String>> = _messages
+    private val _messages: MutableStateFlow<List<MessageDto>> = MutableStateFlow(listOf())
+    val messages: StateFlow<List<MessageDto>> = _messages
 
     private val handler: Handler = object : Handler(Looper.getMainLooper()) {
         override fun handleMessage(msg: Message) {
@@ -49,7 +50,7 @@ class IPCPublisher {
     private fun updateMessages(text: String, pId: Int) {
         scope?.launch {
             val dataList = _messages.value.toMutableList()
-            dataList.add(text)
+            dataList.add(MessageDto(text, pId))
             _messages.emit(dataList)
         }
     }
@@ -59,12 +60,12 @@ class IPCPublisher {
         // Called when the connection with the service is established.
         override fun onServiceConnected(className: ComponentName, service: IBinder) {
             Log.i("dsdsd", "onServiceConnected: ")
-            connected.set(true)
+            scope = CoroutineScope(SupervisorJob())
+            scope?.launch { _connected.emit(true) }
 
             remoteService = RemoteService.Stub.asInterface(service)
             clientMessenger = Messenger(handler)
 
-            scope = CoroutineScope(SupervisorJob())
             serverMessenger = Messenger(service)
             runCatching {
                 val msg: Message = Message.obtain(
@@ -78,7 +79,7 @@ class IPCPublisher {
 
         // Called when the connection with the service disconnects unexpectedly.
         override fun onServiceDisconnected(className: ComponentName) {
-            connected.set(false)
+            scope?.launch { _connected.emit(false) }
             remoteService = null
             serverMessenger = null
             scope?.cancel()
@@ -87,7 +88,7 @@ class IPCPublisher {
     }
 
     fun connectAidl(context: Context) {
-        if (connected.get()) return
+        if (_connected.value) return
         val intent = Intent("aidl_server")
         val pack = RemoteService::class.java.`package` // todo?
         Log.i(context.packageName, "connect package $pack")
@@ -102,7 +103,7 @@ class IPCPublisher {
     }
 
     fun connectTwoWay(context: Context) {
-        if (connected.get()) return
+        if (_connected.value) return
         val intent = Intent("two_way_messages")
         val pack = "com.uva.server" // todo?
         Log.i(context.packageName, "connect package $pack")
@@ -115,12 +116,12 @@ class IPCPublisher {
     }
 
     fun disconnect(context: Context) {
-        if (!connected.get()) return
+        if (!_connected.value) return
         context.applicationContext?.unbindService(connection)
     }
 
     fun sendMessageToServer(text: String, context: Context) {
-        require(connected.get())
+        require(_connected.value)
         val message = Message.obtain(handler)
         val bundle = Bundle()
         updateMessages(text, Process.myPid())
